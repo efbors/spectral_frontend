@@ -1,0 +1,9 @@
+# Large artifacts
+checkpoints/*
+datasets/*
+
+# But track configs/scripts
+!checkpoints/**/config.yaml
+!checkpoints/**/spectral_conv_autoencoder_*.py
+!training_analysis/**.py
+!training_analysis/**.yaml

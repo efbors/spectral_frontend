@@ -1,0 +1,212 @@
+preprocessing:
+  dataset_base_dir: "/mnt/sdc/home/felix/_bulk/_bulk_blurt/LibriSpeech100h/"
+  audio_root_dir: "train-clean-100/"
+  #dataset_base_dir: "/home/felix/Downloads/libri_speech_360h/"
+  #audio_root_dir: "train-clean-360/"
+
+  # Number of training processes (typically number of GPUs on one node)
+  nproc_per_node: 4
+
+  # ADJUST shards_per_proc and training.batch_size to target 85%+ GPU MEM+PROC
+  # Total shards per node = shards_per_proc * nproc_per_node = 12
+  shards_per_proc: 3
+
+  # max_frames_per_block per GPU;  main controlling knob for GPU mem
+  max_frames_per_block: 2e6
+
+  max_threads_per_proc: 20
+
+  # batched_windows_per_shard = trainig.batch_size ;
+  # each window is train_window_frames x input_dim uint12
+  # batched_windows_per_shard has to be divisible by nproc_per_node
+  batched_windows_per_shard: 200
+  discard_incomplete_final_shard: true
+  shards_dir: "pcen_shards_6x180_uint16C"
+  shard_split_output_dirs:
+    train: "train"
+    val: "val"
+
+signal_processing:
+  sampling_frequency: 8000 # [Hz] target sampling_frequency  mel_n_fft: 512
+  stft_win_length_ms: 45            # Window size for STFT
+  stft_hop_length_ms: 20            # Hop size → 50 Hz frame rate
+  stft_nfft: 512                    # FFT size (rfft output = 257 bins)
+  agc_eps: 1e-6                     # AGC stabilization constant
+
+  pcen: # per-channel energy normalization
+    eps: 1e-6
+    alpha: 0.98  # strength of normalization
+    delta: 2.0   # bias floor
+    r: 0.5       # root compression
+    s: 0.025     # smoothing coefficient for EMA
+    init_window: 4 # initialize PCEN on this many frames
+    # quantization
+    bitdepth: 12  # Change this between 1 and 16
+    min_db: -6.5  # deci-dB
+    max_db: 2.0
+
+    mag_min_dB: -50 # input signal power
+    mag_max_dB: 20
+
+    pcen_normalization:
+      method: "fixed"
+      mean: 0.5694506
+      std: 0.09860655
+
+training:
+  model_name: "4L12DW"
+  #model_name: "3L12DW"
+
+  #  model_module: "spectral_conv_autoencoder_4L12DW"
+  #  #model_module: "spectral_conv_autoencoder_3L12DW"
+  #  #model_module: "spectral_conv_autoencoder_3L12"
+  #  #model_module: "spectral_conv_autoencoder_3L"
+  #
+  #  model_name: "SpectralConvAutoencoder_4L12DW"
+  #  #model_name: "SpectralConvAutoencoder_3L12DW"
+  #  #model_name: "SpectralConvAutoencoder_3L12"
+  #  #model_name: "SpectralConvAutoencoder"
+
+  #dataset_name: "ljspeech/pcen_out12"
+  #dataset_name: "vctk/pcen_out12"
+  dataset_name: "pcen_out12"
+
+  # files in checkpoint_dir will be overwritten
+  checkpoint_dir: "checkpoints/250520a_libri"
+  #checkpoint_dir: "checkpoints/250516b_vctk"
+  #checkpoint_dir: "checkpoints/250516a_vctk"  # 20lat-dim
+  #checkpoint_dir: "checkpoints/250515a_vctk" #
+  #checkpoint_dir: "checkpoints/250515b_vctk"  # 24lat-dim
+
+  proc_batch_size: 512
+  learning_rate: 1.33e-3
+  num_epochs: 100
+  latent_dim: 14
+  input_dim: 180  # shape of log10(agced) frame
+  shuffle: true
+  use_amp: false
+  save_every: 1
+  train_window_frames: 6
+
+training_analyzer:
+  # point to the input directory for the analysis where the checkpoints are located (this is read only)
+
+  checkpoint_dir: "checkpoints/250518a_vctk"
+  checkpoint_dir: "checkpoints/250516b_vctk"
+  #checkpoint_dir: "checkpoints/250515b_vctk"
+  #checkpoint_dir: "checkpoints/250514a_vctk"
+  #checkpoint_dir: "checkpoints/250513b_vctk"
+
+  # plot trainiging and validations loss values
+  view_loss:
+    enable: False
+
+  mean_reconstruction_error:
+    enable: False
+
+  #
+  # Angle (Cosine Similarity) Between Epochs
+  # What it shows: Whether a filter is changing direction in weight space, not just scale.
+  # How: Flatten each 3×3 filter into a vector.
+  # Compute cosine similarity between a filter at epoch_t and epoch_{t+1}.
+  # Stagnation appears as similarity ≈ 1 for many epochs.
+  # Especially good for catching filters that change in norm but not in "direction."
+  #
+  cosine_similarity:
+    enable: False
+    animation: False # True one animated plot; False epochs-1 different plots
+    conv_layers: [ 2 ] # list of the layers to run this analysis
+
+  # Latent Variance Analysis
+  #
+  # Purpose: Diagnose latent space behavior across epochs.
+  #
+  # Observations:
+  #   a) Dead / underused units:
+  #      - Variance ≈ 0 across epochs → units not contributing (dead).
+  #
+  #   b) Saturation or collapse:
+  #      - If all dims have low variance → latent space has collapsed.
+  #      - Possible causes: over-regularization, ReLU suppression, too much dropout, bottleneck too narrow.
+  #      - If variance starts high but decays to 0 → network may have stopped learning.
+  #
+  #   c) Dimensional usage over time:
+  #      - Track how many dims have variance above a threshold (e.g., 1e-4).
+  #
+  # Output:
+  #   latent_variance_{date}_{basename}.png
+  #
+  latent_variance:
+    enable: True
+
+
+  # Latent Entropy Analysis
+  #
+  # Purpose: Measure total information content of the latent space
+  #
+  # Method:
+  #   - Entropy(Z) ≈ 0.5 * log(det(Cov(Z))) + const
+  #   - Entropy is high → spread latent codes (more information, less compression)
+  #   - Entropy is low → collapsed or redundant latent codes (overcompression)
+  #
+  # Useful for:
+  #   - Tracking compression over time (I(Z;X) proxy)
+  #   - Information Bottleneck curves vs R²
+  #   - Comparing multiple training runs or model variants
+  #
+  latent_entropy:
+    enable: True
+
+
+  # Latent PCA Analysis
+  #
+  # Purpose: Understand the global structure and evolution of the latent space.
+  #
+  # Observations:
+  #   - Variance: per-dim magnitude (axis-aligned)
+  #   - Entropy: per-dim unpredictability
+  #   - PCA: true shape of the latent cloud in latent_dim space
+  #
+  #     a) If eigenvalues decay quickly → latent space is low-rank (subspace collapse)
+  #     b) If top-2 PCs explain most variance → latent space is elongated and flat
+  #     c) If spread is isotropic → latent dimensions are decorrelated (idealized)
+  #
+  # Output:
+  #   - /latent_pca_pngs/: PCA scatter and eigenvalue plots per window
+  #   - /: GIFs combining PCA evolution over training
+  #
+  latent_PCA:
+    enable: True
+
+
+
+
+  # Information Bottleneck (IB) Analysis
+  #
+  # Goal: Quantify how much information the latent space Z retains about:
+  #   - The input X  → via entropy of Z (proxy for I(Z;X))
+  #   - The target Y → via R² score (proxy for I(Z;Y))
+  #
+  # Data flow:
+  #   X: 6 input frames → [B, 1, 6, 180]
+  #   Z: encoder(X)    → [B, latent_dim]     (e.g., latent_dim = 32)
+  #   Y: target frame  → [B, 180]            (last frame in the 6-frame input)
+  #
+  # Definitions:
+  #   - R² = 1 - MSE / var(Y)      # Coefficient of determination
+  #   - I(Z;Y) ≈ R² score          # Predictive power of Z
+  #   - I(Z;X) ≈ entropy(Z)        # Compression of input in Z
+  #
+  # Outputs:
+  #   1) r2_score_{date}_{run}.png               → R² score over time
+  #   2) r2_vs_entropy_colored_{date}_{run}.png  → IB curve (R² vs entropy)
+  #
+  ib_analysis:
+    enable: True
+
+
+
+blurt_export_dataset:
+  ckeckpoint_read_dir: "/home/felix/PythonSpLib/spectral_frontend/checkpoints/250516b_vctk_blurt_ref/"
+
+
