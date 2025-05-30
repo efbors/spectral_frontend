@@ -114,7 +114,7 @@ This design ensures that:
 Clone the repository and install required packages:
 
 ```bash
-git clone https://github.com/yourusername/spectral_frontend.git
+git clone https://github.com/efbors/spectral_frontend.git
 cd spectral_frontend
 pip install -r requirements.txt
 ```
